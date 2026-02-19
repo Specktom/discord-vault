@@ -55,12 +55,12 @@ function deleteFile(id) {
 
 // ─── EXPRESS SETUP ────────────────────────────────────────────────────────────
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: ['https://discloud-c2705.web.app', 'https://discord-vault.onrender.com']
+}));
 app.use(express.json());
-
 // Serve the frontend from the public/ folder
 app.use(express.static(path.join(__dirname, 'public')));
-
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 500 * 1024 * 1024 }, // 500MB

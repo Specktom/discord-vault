@@ -1,5 +1,5 @@
 // ─── CONFIG ────────────────────────────────────────────────────────────────
-const API_BASE = 'http://192.168.1.6:3001/api';
+const API_BASE = 'https://discord-vault.onrender.com/api';
 const MAX_FILE_MB = 500;
 
 // ─── STATE ─────────────────────────────────────────────────────────────────
