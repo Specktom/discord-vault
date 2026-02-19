@@ -1,6 +1,6 @@
-// ─── Discord Vault — Local Backend Server ────────────────────────────────────
+// ─── Discord Vault — Backend Server ──────────────────────────────────────────
 // Run with: node server.js
-// Stores file metadata in vault.json (no cloud DB needed)
+// Per-user file storage using Google UID from Firebase Auth
 // ─────────────────────────────────────────────────────────────────────────────
 
 require('dotenv').config();
@@ -13,57 +13,114 @@ const fs       = require('fs');
 const path     = require('path');
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
-const DISCORD_BOT_TOKEN  = process.env.DISCORD_TOKEN;
-const DISCORD_CHANNEL_ID = process.env.DISCORD_CHANNEL;
-const PORT               = process.env.PORT || 3001;
-const DB_FILE            = path.join(__dirname, 'vault.json');
-const CHUNK_SIZE         = 24 * 1024 * 1024; // 24MB per chunk
+const DISCORD_BOT_TOKEN   = process.env.DISCORD_TOKEN;
+const DISCORD_CHANNEL_ID  = process.env.DISCORD_CHANNEL;
+const FIREBASE_WEB_API_KEY = process.env.FIREBASE_WEB_API_KEY;
+const PORT                = process.env.PORT || 3001;
+const DB_FILE             = path.join(__dirname, 'vault.json');
+const CHUNK_SIZE          = 24 * 1024 * 1024; // 24MB per chunk
 
-if (!DISCORD_BOT_TOKEN || !DISCORD_CHANNEL_ID) {
-  console.error('❌  Missing DISCORD_TOKEN or DISCORD_CHANNEL in .env file!');
+if (!DISCORD_BOT_TOKEN || !DISCORD_CHANNEL_ID || !FIREBASE_WEB_API_KEY) {
+  console.error('❌  Missing environment variables! Check your .env file.');
+  console.error('    Required: DISCORD_TOKEN, DISCORD_CHANNEL, FIREBASE_WEB_API_KEY');
   process.exit(1);
 }
 
-// ─── LOCAL JSON DATABASE ──────────────────────────────────────────────────────
+// ─── LOCAL JSON DATABASE (per-user) ──────────────────────────────────────────
 function readDB() {
-  if (!fs.existsSync(DB_FILE)) fs.writeFileSync(DB_FILE, JSON.stringify({ files: [] }));
-  return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+  if (!fs.existsSync(DB_FILE)) fs.writeFileSync(DB_FILE, JSON.stringify({ users: {} }));
+  const db = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+  // migrate old single-user format
+  if (db.files && !db.users) {
+    db.users = { _legacy: { files: db.files } };
+    delete db.files;
+    writeDB(db);
+  }
+  if (!db.users) db.users = {};
+  return db;
 }
 
 function writeDB(data) {
   fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
 }
 
-function addFile(record) {
+function getUserFiles(uid) {
   const db = readDB();
+  if (!db.users[uid]) db.users[uid] = { files: [] };
+  return db.users[uid].files;
+}
+
+function addFile(uid, record) {
+  const db = readDB();
+  if (!db.users[uid]) db.users[uid] = { files: [] };
   record.id = Date.now().toString(36) + Math.random().toString(36).slice(2);
   record.timestamp = new Date().toISOString();
-  db.files.unshift(record); // newest first
+  db.users[uid].files.unshift(record);
   writeDB(db);
   return record;
 }
 
-function getFile(id) {
-  return readDB().files.find(f => f.id === id) || null;
+function getFile(uid, id) {
+  return getUserFiles(uid).find(f => f.id === id) || null;
 }
 
-function deleteFile(id) {
+function deleteFile(uid, id) {
   const db = readDB();
-  db.files = db.files.filter(f => f.id !== id);
-  writeDB(db);
+  if (db.users[uid]) {
+    db.users[uid].files = db.users[uid].files.filter(f => f.id !== id);
+    writeDB(db);
+  }
+}
+
+// ─── VERIFY FIREBASE ID TOKEN ─────────────────────────────────────────────────
+async function verifyToken(authHeader) {
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+  const token = authHeader.split(' ')[1];
+  try {
+    const res = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${FIREBASE_WEB_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: token }),
+      }
+    );
+    const data = await res.json();
+    if (data.error || !data.users?.[0]) return null;
+    return {
+      uid: data.users[0].localId,
+      email: data.users[0].email,
+      name: data.users[0].displayName,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// ─── AUTH MIDDLEWARE ──────────────────────────────────────────────────────────
+async function requireAuth(req, res, next) {
+  const user = await verifyToken(req.headers.authorization);
+  if (!user) return res.status(401).json({ error: 'Unauthorized — please sign in with Google' });
+  req.user = user;
+  next();
 }
 
 // ─── EXPRESS SETUP ────────────────────────────────────────────────────────────
 const app = express();
 app.use(cors({
-  origin: ['https://discloud-c2705.web.app', 'https://discord-vault.onrender.com']
+  origin: [
+    'https://discloud-c2705.web.app',
+    'https://discord-vault.onrender.com',
+    'http://localhost:3001',
+    'http://192.168.1.6:3001',
+  ]
 }));
 app.use(express.json());
-// Serve the frontend from the public/ folder
 app.use(express.static(path.join(__dirname, 'public')));
+
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 500 * 1024 * 1024 }, // 500MB
+  limits: { fileSize: 500 * 1024 * 1024 },
 });
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -81,7 +138,6 @@ async function uploadChunkToDiscord(buffer, filename, contentType, label) {
   const form = new FormData();
   form.append('file', buffer, { filename, contentType });
   form.append('content', label);
-
   const res = await fetch(
     `https://discord.com/api/v10/channels/${DISCORD_CHANNEL_ID}/messages`,
     {
@@ -90,16 +146,10 @@ async function uploadChunkToDiscord(buffer, filename, contentType, label) {
       body: form,
     }
   );
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Discord upload failed: ${err}`);
-  }
-
+  if (!res.ok) throw new Error(`Discord upload failed: ${await res.text()}`);
   const data = await res.json();
   const attachment = data.attachments?.[0];
   if (!attachment) throw new Error('No attachment returned by Discord');
-
   return { messageId: data.id, url: attachment.url };
 }
 
@@ -111,48 +161,40 @@ async function deleteDiscordMessage(messageId) {
 }
 
 // ─── UPLOAD ───────────────────────────────────────────────────────────────────
-app.post('/api/upload', upload.single('file'), async (req, res) => {
+app.post('/api/upload', requireAuth, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file provided' });
 
+    const uid       = req.user.uid;
     const filename  = req.body.filename || req.file.originalname;
     const type      = req.body.type || (req.file.mimetype.startsWith('video/') ? 'video' : 'image');
     const buffer    = req.file.buffer;
     const mimetype  = req.file.mimetype;
     const totalSize = buffer.length;
     const isChunked = totalSize > CHUNK_SIZE;
-
     let record;
 
     if (!isChunked) {
-      // Single file upload
-      console.log(`📤 Uploading ${filename} (${(totalSize/1024/1024).toFixed(1)}MB)...`);
-      const label = `📁 **${filename}** | type: \`${type}\` | size: \`${(totalSize/1024/1024).toFixed(1)}MB\` | uploaded: \`${new Date().toISOString()}\``;
+      console.log(`📤 [${req.user.email}] Uploading ${filename} (${(totalSize/1024/1024).toFixed(1)}MB)...`);
+      const label = `📁 **${filename}** | user: \`${req.user.email}\` | size: \`${(totalSize/1024/1024).toFixed(1)}MB\` | ${new Date().toISOString()}`;
       const { messageId, url } = await uploadChunkToDiscord(buffer, filename, mimetype, label);
-
       record = { filename, type, url, discordMessageId: messageId, size: totalSize, mimetype, chunked: false };
-
     } else {
-      // Chunked upload
       const chunks = splitBuffer(buffer, CHUNK_SIZE);
       const total  = chunks.length;
-      console.log(`📦 Uploading ${filename} in ${total} chunks (${(totalSize/1024/1024).toFixed(1)}MB total)...`);
-
+      console.log(`📦 [${req.user.email}] Uploading ${filename} in ${total} chunks...`);
       const chunkRecords = [];
       for (let i = 0; i < total; i++) {
-        console.log(`   chunk ${i + 1}/${total}...`);
+        console.log(`   chunk ${i+1}/${total}...`);
         const chunkFilename = `${filename}.part${String(i+1).padStart(3,'0')}of${total}`;
-        const label = `📦 **${filename}** | chunk \`${i+1}/${total}\` | size: \`${(chunks[i].length/1024/1024).toFixed(1)}MB\``;
+        const label = `📦 **${filename}** | user: \`${req.user.email}\` | chunk \`${i+1}/${total}\``;
         const { messageId, url } = await uploadChunkToDiscord(chunks[i], chunkFilename, 'application/octet-stream', label);
         chunkRecords.push({ index: i, messageId, url, size: chunks[i].length });
       }
-
-      // Post manifest to Discord
       const manifestText =
-        `📋 **MANIFEST: ${filename}**\n` +
-        `type: \`${type}\` | total: \`${(totalSize/1024/1024).toFixed(1)}MB\` | chunks: \`${total}\`\n` +
+        `📋 **MANIFEST: ${filename}** | user: \`${req.user.email}\`\n` +
+        `total: \`${(totalSize/1024/1024).toFixed(1)}MB\` | chunks: \`${total}\`\n` +
         chunkRecords.map(c => `  chunk ${c.index+1}: ${c.url}`).join('\n');
-
       const manifestRes = await fetch(
         `https://discord.com/api/v10/channels/${DISCORD_CHANNEL_ID}/messages`,
         {
@@ -162,19 +204,12 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
         }
       );
       const manifestData = await manifestRes.json();
-
-      record = {
-        filename, type, url: null,
-        discordMessageId: manifestData.id,
-        size: totalSize, mimetype,
-        chunked: true, totalChunks: total, chunks: chunkRecords,
-      };
+      record = { filename, type, url: null, discordMessageId: manifestData.id, size: totalSize, mimetype, chunked: true, totalChunks: total, chunks: chunkRecords };
     }
 
-    const saved = addFile(record);
-    console.log(`✅ ${filename} saved (id: ${saved.id})`);
+    const saved = addFile(uid, record);
+    console.log(`✅ [${req.user.email}] ${filename} saved (id: ${saved.id})`);
     return res.json({ success: true, id: saved.id, chunked: isChunked, chunks: isChunked ? record.totalChunks : 1, filename });
-
   } catch (err) {
     console.error('❌ Upload error:', err.message);
     return res.status(500).json({ error: err.message });
@@ -182,20 +217,13 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
 });
 
 // ─── LIST ─────────────────────────────────────────────────────────────────────
-app.get('/api/list', (req, res) => {
+app.get('/api/list', requireAuth, (req, res) => {
   try {
-    const db = readDB();
-    const files = db.files.map(f => ({
-      id: f.id,
-      filename: f.filename,
-      type: f.type,
-      url: f.url,
-      size: f.size,
-      mimetype: f.mimetype,
-      chunked: f.chunked || false,
-      totalChunks: f.totalChunks || 1,
-      chunks: f.chunks || null,
-      timestamp: f.timestamp,
+    const files = getUserFiles(req.user.uid).map(f => ({
+      id: f.id, filename: f.filename, type: f.type, url: f.url,
+      size: f.size, mimetype: f.mimetype,
+      chunked: f.chunked || false, totalChunks: f.totalChunks || 1,
+      chunks: f.chunks || null, timestamp: f.timestamp,
     }));
     return res.json({ files });
   } catch (err) {
@@ -203,32 +231,25 @@ app.get('/api/list', (req, res) => {
   }
 });
 
-// ─── DOWNLOAD (reassemble chunks) ────────────────────────────────────────────
-app.get('/api/download/:id', async (req, res) => {
+// ─── DOWNLOAD ─────────────────────────────────────────────────────────────────
+app.get('/api/download/:id', requireAuth, async (req, res) => {
   try {
-    const file = getFile(req.params.id);
+    const file = getFile(req.user.uid, req.params.id);
     if (!file) return res.status(404).json({ error: 'Not found' });
-
     if (!file.chunked) return res.redirect(file.url);
-
     console.log(`🔧 Reassembling ${file.filename} from ${file.totalChunks} chunks...`);
     const sorted  = [...file.chunks].sort((a, b) => a.index - b.index);
     const buffers = [];
-
     for (const chunk of sorted) {
       const r = await fetch(chunk.url);
       if (!r.ok) throw new Error(`Failed to fetch chunk ${chunk.index}`);
       buffers.push(Buffer.from(await r.arrayBuffer()));
     }
-
     const assembled = Buffer.concat(buffers);
-    console.log(`✅ Reassembled ${file.filename} (${(assembled.length/1024/1024).toFixed(1)}MB)`);
-
     res.setHeader('Content-Type', file.mimetype || 'application/octet-stream');
     res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
     res.setHeader('Content-Length', assembled.length);
     return res.send(assembled);
-
   } catch (err) {
     console.error('❌ Download error:', err.message);
     return res.status(500).json({ error: err.message });
@@ -236,11 +257,10 @@ app.get('/api/download/:id', async (req, res) => {
 });
 
 // ─── DELETE ───────────────────────────────────────────────────────────────────
-app.delete('/api/delete/:id', async (req, res) => {
+app.delete('/api/delete/:id', requireAuth, async (req, res) => {
   try {
-    const file = getFile(req.params.id);
+    const file = getFile(req.user.uid, req.params.id);
     if (!file) return res.status(404).json({ error: 'Not found' });
-
     if (!file.chunked) {
       await deleteDiscordMessage(file.discordMessageId);
     } else {
@@ -249,11 +269,9 @@ app.delete('/api/delete/:id', async (req, res) => {
         deleteDiscordMessage(file.discordMessageId),
       ]);
     }
-
-    deleteFile(req.params.id);
-    console.log(`🗑️  Deleted ${file.filename}`);
+    deleteFile(req.user.uid, req.params.id);
+    console.log(`🗑️  [${req.user.email}] Deleted ${file.filename}`);
     return res.json({ success: true });
-
   } catch (err) {
     console.error('❌ Delete error:', err.message);
     return res.status(500).json({ error: err.message });
