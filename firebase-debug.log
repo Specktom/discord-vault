@@ -1,0 +1,31 @@
+[debug] [2026-02-19T15:53:26.604Z] ----------------------------------------------------------------------
+[debug] [2026-02-19T15:53:26.682Z] Command:       /usr/bin/node /usr/bin/firebase deploy --only hosting
+[debug] [2026-02-19T15:53:26.682Z] CLI Version:   15.6.0
+[debug] [2026-02-19T15:53:26.683Z] Platform:      linux
+[debug] [2026-02-19T15:53:26.683Z] Node Version:  v20.20.0
+[debug] [2026-02-19T15:53:26.683Z] Time:          Thu Feb 19 2026 21:38:26 GMT+0545 (Nepal Time)
+[debug] [2026-02-19T15:53:26.684Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-02-19T15:53:31.126Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-02-19T15:53:31.127Z] > authorizing via signed-in user (nnirajghimire@gmail.com)
+[debug] [2026-02-19T15:53:31.127Z] [iam] checking project discloud-c2705 for permissions ["firebase.projects.get","firebasehosting.sites.update"]
+[debug] [2026-02-19T15:53:31.129Z] Checked if tokens are valid: true, expires at: 1771518191552
+[debug] [2026-02-19T15:53:31.130Z] Checked if tokens are valid: true, expires at: 1771518191552
+[debug] [2026-02-19T15:53:31.132Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/discloud-c2705:testIamPermissions [none]
+[debug] [2026-02-19T15:53:31.132Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/discloud-c2705:testIamPermissions  x-goog-user-project=discloud-c2705
+[debug] [2026-02-19T15:53:31.132Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/discloud-c2705:testIamPermissions {"permissions":["firebase.projects.get","firebasehosting.sites.update"]}
+[debug] [2026-02-19T15:53:32.978Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/discloud-c2705:testIamPermissions 200
+[debug] [2026-02-19T15:53:32.979Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/discloud-c2705:testIamPermissions {"permissions":["firebase.projects.get","firebasehosting.sites.update"]}
+[debug] [2026-02-19T15:53:32.980Z] Checked if tokens are valid: true, expires at: 1771518191552
+[debug] [2026-02-19T15:53:32.980Z] Checked if tokens are valid: true, expires at: 1771518191552
+[debug] [2026-02-19T15:53:32.981Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/discloud-c2705 [none]
+[debug] [2026-02-19T15:53:33.509Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/discloud-c2705 200
+[debug] [2026-02-19T15:53:33.509Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/discloud-c2705 {"projectId":"discloud-c2705","projectNumber":"798256936235","displayName":"Discloud","name":"projects/discloud-c2705","resources":{"hostingSite":"discloud-c2705"},"state":"ACTIVE","etag":"1_bb91a5cd-a59f-4ac4-9c46-4960f74179e7"}
+[info] 
+[info] === Deploying to 'discloud-c2705'...
+[info] 
+[info] i  deploying hosting 
+[debug] [2026-02-19T15:53:33.517Z] Checked if tokens are valid: true, expires at: 1771518191552
+[debug] [2026-02-19T15:53:33.517Z] Checked if tokens are valid: true, expires at: 1771518191552
+[debug] [2026-02-19T15:53:33.518Z] >>> [apiv2][query] POST https://firebasehosting.googleapis.com/v1beta1/projects/-/sites/discloud-c2705/versions [none]
+[debug] [2026-02-19T15:53:33.518Z] >>> [apiv2][body] POST https://firebasehosting.googleapis.com/v1beta1/projects/-/sites/discloud-c2705/versions {"status":"CREATED","labels":{"deployment-tool":"cli-firebase"}}
