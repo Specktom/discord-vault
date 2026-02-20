@@ -1,17 +1,24 @@
 // ─── Firebase Setup ────────────────────────────────────────────────────────
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged }
-  from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  signOut,
+  onAuthStateChanged
+} from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
 
 // 🔴 Replace these with your actual Firebase config values
 // Get them from: Firebase Console → Project Settings → Your Apps → Web App
 const firebaseConfig = {
-  apiKey: "AIzaSyA0FWGSXLyzQ3GSw7jVzzca4gMbefBuJG4",
-  authDomain: "discloud-c2705.firebaseapp.com",
-  projectId: "discloud-c2705",
-  storageBucket: "discloud-c2705.firebasestorage.app",
-  messagingSenderId: "798256936235",
-  appId: "1:798256936235:web:589f52a6938d3f0e72016e"
+  apiKey:            "YOUR_FIREBASE_API_KEY",
+  authDomain:        "discloud-c2705.firebaseapp.com",
+  projectId:         "discloud-c2705",
+  storageBucket:     "discloud-c2705.appspot.com",
+  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+  appId:             "YOUR_APP_ID",
 };
 
 const firebaseApp = initializeApp(firebaseConfig);
@@ -23,16 +30,16 @@ const API_BASE    = 'https://discord-vault.onrender.com/api';
 const MAX_FILE_MB = 500;
 
 // ─── STATE ─────────────────────────────────────────────────────────────────
-let currentUser  = null;
-let idToken      = null;
-let fileQueue    = [];
-let galleryItems = [];
+let currentUser   = null;
+let idToken       = null;
+let fileQueue     = [];
+let galleryItems  = [];
 let currentFilter = 'all';
 
 // ─── AUTH HELPERS ──────────────────────────────────────────────────────────
 async function getToken() {
   if (!currentUser) return null;
-  idToken = await currentUser.getIdToken();
+  idToken = await currentUser.getIdToken(true); // force refresh
   return idToken;
 }
 
@@ -57,50 +64,77 @@ const lightbox        = document.getElementById('lightbox');
 const lightboxContent = document.getElementById('lightboxContent');
 const lightboxInfo    = document.getElementById('lightboxInfo');
 
+// ─── SHOW / HIDE APP ──────────────────────────────────────────────────────
+function showApp(user) {
+  currentUser = user;
+  user.getIdToken(true).then(token => { idToken = token; });
+  loginScreen.style.display = 'none';
+  appEl.style.display = 'block';
+  userNameEl.textContent = user.displayName?.split(' ')[0] || user.email;
+  if (user.photoURL) {
+    userAvatar.src = user.photoURL;
+    userAvatar.style.display = 'block';
+  }
+}
+
+function showLogin() {
+  currentUser = null;
+  idToken = null;
+  loginScreen.style.display = 'flex';
+  appEl.style.display = 'none';
+}
+
 // ─── AUTH STATE ────────────────────────────────────────────────────────────
-onAuthStateChanged(auth, async user => {
+// First handle any pending redirect result (mobile sign in)
+getRedirectResult(auth)
+  .then(result => {
+    if (result?.user) showApp(result.user);
+  })
+  .catch(err => {
+    console.error('Redirect sign-in error:', err);
+    showToast('Sign in failed. Try again.', 'error');
+  });
+
+// Then watch for ongoing auth state changes
+onAuthStateChanged(auth, user => {
   if (user) {
-    currentUser = user;
-    idToken = await user.getIdToken();
-
-    // Show app, hide login
-    loginScreen.style.display = 'none';
-    appEl.style.display = 'block';
-
-    // Set user info in header
-    userNameEl.textContent = user.displayName?.split(' ')[0] || user.email;
-    if (user.photoURL) {
-      userAvatar.src = user.photoURL;
-      userAvatar.style.display = 'block';
-    }
+    showApp(user);
   } else {
-    currentUser = null;
-    idToken = null;
-    loginScreen.style.display = 'flex';
-    appEl.style.display = 'none';
+    showLogin();
   }
 });
-getRedirectResult(auth).catch(err => console.error('Redirect error:', err));
 
-// ─── SIGN IN / OUT ────────────────────────────────────────────────────────
+// ─── SIGN IN ─────────────────────────────────────────────────────────────
 googleSignInBtn.addEventListener('click', async () => {
   try {
     googleSignInBtn.textContent = 'Signing in...';
     googleSignInBtn.disabled = true;
-    const isMobile = /iPhone|iPad|Android/i.test(navigator.userAgent);
+
+    const isMobile = /iPhone|iPad|Android|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
     if (isMobile) {
+      // Redirect flow for mobile (no popup needed)
       await signInWithRedirect(auth, provider);
     } else {
-      await signInWithPopup(auth, provider);
+      // Popup flow for desktop
+      const result = await signInWithPopup(auth, provider);
+      showApp(result.user);
     }
   } catch (err) {
-    console.error(err);
-    googleSignInBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg"><path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z" fill="#4285F4"/><path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z" fill="#34A853"/><path d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.961H.957C.347 6.175 0 7.55 0 9s.348 2.825.957 4.039l3.007-2.332z" fill="#FBBC05"/><path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.961L3.964 7.293C4.672 5.166 6.656 3.58 9 3.58z" fill="#EA4335"/></svg> Sign in with Google`;
+    console.error('Sign in error:', err);
+    googleSignInBtn.innerHTML = `
+      <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+        <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z" fill="#4285F4"/>
+        <path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z" fill="#34A853"/>
+        <path d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.961H.957C.347 6.175 0 7.55 0 9s.348 2.825.957 4.039l3.007-2.332z" fill="#FBBC05"/>
+        <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.961L3.964 7.293C4.672 5.166 6.656 3.58 9 3.58z" fill="#EA4335"/>
+      </svg> Sign in with Google`;
     googleSignInBtn.disabled = false;
     showToast('Sign in failed. Try again.', 'error');
   }
 });
 
+// ─── SIGN OUT ────────────────────────────────────────────────────────────
 signOutBtn.addEventListener('click', async () => {
   await signOut(auth);
   fileQueue = [];
@@ -198,7 +232,7 @@ function setItemStatus(id, status, label) {
 // ─── UPLOAD ───────────────────────────────────────────────────────────────────
 uploadBtn.addEventListener('click', async () => {
   if (fileQueue.length === 0) return;
-  await getToken(); // refresh token
+  await getToken();
   uploadBtn.disabled = true;
   uploadBtn.querySelector('span').textContent = 'Uploading...';
   let successCount = 0;
@@ -253,7 +287,9 @@ function renderGallery() {
   galleryGrid.innerHTML = '';
 
   if (filtered.length === 0) {
-    galleryGrid.innerHTML = `<div class="empty-state"><span class="empty-icon">⬡</span><p>${currentFilter === 'all' ? 'Your vault is empty.<br>Upload some files first.' : `No ${currentFilter}s found.`}</p></div>`;
+    galleryGrid.innerHTML = `<div class="empty-state"><span class="empty-icon">⬡</span><p>${
+      currentFilter === 'all' ? 'Your vault is empty.<br>Upload some files first.' : `No ${currentFilter}s found.`
+    }</p></div>`;
     return;
   }
 
@@ -261,7 +297,9 @@ function renderGallery() {
     const div = document.createElement('div');
     div.className = 'gallery-item';
     const badge = `<span class="gallery-type-badge badge-${item.type}">${item.type}</span>`;
-    const chunkBadge = item.chunked ? `<span class="gallery-type-badge" style="background:rgba(255,189,46,0.15);color:#ffbd2e">${item.totalChunks} chunks</span>` : '';
+    const chunkBadge = item.chunked
+      ? `<span class="gallery-type-badge" style="background:rgba(255,189,46,0.15);color:#ffbd2e">${item.totalChunks} chunks</span>`
+      : '';
     const date = new Date(item.timestamp).toLocaleDateString();
     const downloadUrl = item.chunked ? `${API_BASE}/download/${item.id}` : item.url;
 
@@ -303,7 +341,9 @@ function openLightbox(item, downloadUrl) {
     ? `<img src="${downloadUrl}" alt="${item.filename}" />`
     : `<video src="${downloadUrl}" controls autoplay muted></video>`;
 
-  const chunkInfo = item.chunked ? `<div style="color:#ffbd2e;margin-top:0.3rem">Split into ${item.totalChunks} chunks of 24MB in Discord</div>` : '';
+  const chunkInfo = item.chunked
+    ? `<div style="color:#ffbd2e;margin-top:0.3rem">Split into ${item.totalChunks} chunks of 24MB in Discord</div>`
+    : '';
   lightboxInfo.innerHTML = `
     <div>${item.filename} · ${formatSize(item.size)} · ${new Date(item.timestamp).toLocaleString()}</div>
     ${chunkInfo}
@@ -312,9 +352,16 @@ function openLightbox(item, downloadUrl) {
   lightbox.classList.add('open');
 }
 
-document.getElementById('lightboxClose').addEventListener('click', () => { lightbox.classList.remove('open'); lightboxContent.innerHTML = ''; });
-lightbox.addEventListener('click', e => { if (e.target === lightbox) { lightbox.classList.remove('open'); lightboxContent.innerHTML = ''; } });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { lightbox.classList.remove('open'); lightboxContent.innerHTML = ''; } });
+document.getElementById('lightboxClose').addEventListener('click', () => {
+  lightbox.classList.remove('open');
+  lightboxContent.innerHTML = '';
+});
+lightbox.addEventListener('click', e => {
+  if (e.target === lightbox) { lightbox.classList.remove('open'); lightboxContent.innerHTML = ''; }
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { lightbox.classList.remove('open'); lightboxContent.innerHTML = ''; }
+});
 
 // ─── UTILS ───────────────────────────────────────────────────────────────────
 function formatSize(bytes) {
