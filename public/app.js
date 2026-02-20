@@ -109,17 +109,8 @@ googleSignInBtn.addEventListener('click', async () => {
   try {
     googleSignInBtn.textContent = 'Signing in...';
     googleSignInBtn.disabled = true;
-
-    const isMobile = /iPhone|iPad|Android|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-
-    if (isMobile) {
-      // Redirect flow for mobile (no popup needed)
-      await signInWithRedirect(auth, provider);
-    } else {
-      // Popup flow for desktop
-      const result = await signInWithPopup(auth, provider);
-      showApp(result.user);
-    }
+    const result = await signInWithPopup(auth, provider);
+    showApp(result.user);
   } catch (err) {
     console.error('Sign in error:', err);
     googleSignInBtn.innerHTML = `
