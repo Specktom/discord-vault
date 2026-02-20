@@ -13,12 +13,12 @@ import {
 // 🔴 Replace these with your actual Firebase config values
 // Get them from: Firebase Console → Project Settings → Your Apps → Web App
 const firebaseConfig = {
-  apiKey:            "YOUR_FIREBASE_API_KEY",
+  apiKey:            "AIzaSyA0FWGSXLyzQ3GSw7jVzzca4gMbefBuJG4",
   authDomain:        "discloud-c2705.firebaseapp.com",
   projectId:         "discloud-c2705",
   storageBucket:     "discloud-c2705.appspot.com",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId:             "YOUR_APP_ID",
+  messagingSenderId: "798256936235",
+  appId:             "1:798256936235:web:589f52a6938d3f0e72016e",
 };
 
 const firebaseApp = initializeApp(firebaseConfig);
